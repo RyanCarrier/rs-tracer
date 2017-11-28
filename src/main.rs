@@ -15,7 +15,7 @@ struct Sphere {
 
 impl Sphere {
     fn intersects(&self, ray: &Ray) -> Option<f32> {
-        //This method has next to no effect on fps
+        //This method has next to no (+40% fps) effect on fps
         let radius_squared = self.radius * self.radius;
         let l = self.center - ray.origin;
         let tca = l.dot(ray.direction);
@@ -115,6 +115,7 @@ fn get_pixel_color(scene: &Scene, ray: &Ray) -> Rgba<u8> {
     let closest_intersection = closest_intersection(&scene, ray);
     match closest_intersection {
         Some(i) => {
+            //Tiny effect on fps
             let (sphere, ray_distance) = i;
             let intersection_point = ray.origin + (ray.direction * ray_distance);
             let normal = sphere.normal(intersection_point);
