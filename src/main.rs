@@ -5,6 +5,8 @@ extern crate piston_window;
 use cgmath::{InnerSpace, Point3, Vector3};
 use im::{Rgba, RgbaImage};
 use piston_window::*;
+use std::cmp::Ordering;
+use std::fmt;
 use std::io::{self, Write};
 use std::time::Instant;
 
@@ -82,11 +84,13 @@ impl Fps {
         self.b = self.a;
         self.a = now.duration_since(self.old).subsec_nanos();
         self.old = now;
-        print!(
-            "\r {:.2} fps",
-            1000000000.0 / (((self.a + self.b + self.c) / 3) as f64)
-        );
-        io::stdout().flush().unwrap();
+    }
+}
+
+impl fmt::Display for Fps {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let fps = 1000000000.0 / (((self.a + self.b + self.c) / 3) as f64);
+        write!(f, "\r {:.2} fps", fps)
     }
 }
 
@@ -95,19 +99,24 @@ fn closest_intersection<'a>(scene: &'a Scene, ray: &Ray) -> Option<(&'a Sphere, 
         .spheres
         .as_slice()
         .into_iter()
-        .filter_map(|s| {
-            let intersection = s.intersects(ray);
-            match intersection {
-                Some(i) => {
-                    return if i.is_nan() { None } else { Some((s, i)) };
+        .fold(None, |closest, next| match next.intersects(ray) {
+            None => closest,
+            Some(i) => {
+                if i.is_nan() {
+                    return closest;
                 }
-                None => None,
+
+                match closest {
+                    Some((_, distance)) => {
+                        match distance.partial_cmp(&i).unwrap_or(Ordering::Equal) {
+                            Ordering::Less => closest,
+                            Ordering::Equal => closest,
+                            Ordering::Greater => Some((next, i)),
+                        }
+                    }
+                    None => Some((next, i)),
+                }
             }
-        })
-        .min_by(|x, y| {
-            let &(s1, i1) = x;
-            let &(s2, i2) = y;
-            return i1.partial_cmp(&i2).unwrap(); // Shouldn't ever hit NaN due to check above
         })
 }
 
@@ -229,7 +238,7 @@ fn main() {
             .exit_on_esc(true)
             .opengl(opengl)
             .build()
-            .unwrap();
+            .expect("Failed to create application window");
 
     window.set_bench_mode(true);
     let mut fps = Fps {
@@ -243,16 +252,20 @@ fn main() {
     while let Some(e) = window.next() {
         //Removing render frame gives ~300x fps
         render_frame(&scene, &camera, &render_options, &mut frame);
+
         fps.tick();
+        print!("{}", fps);
+        let _ = io::stdout().flush(); // Don't care if flush fails
 
-        let texture: G2dTexture =
-            Texture::from_image(&mut window.factory, &frame, &TextureSettings::new()).unwrap();
-
-        window.draw_2d(&e, |c, g| {
-            clear([1.0; 4], g);
-            image(&texture, c.transform, g);
-        });
-
+        match Texture::from_image(&mut window.factory, &frame, &TextureSettings::new()) {
+            Ok(texture) => {
+                window.draw_2d(&e, |c, g| {
+                    clear([1.0; 4], g);
+                    image(&texture, c.transform, g);
+                });
+            }
+            Err(why) => print!("Failed to produce frame texture"),
+        };
         scene.spheres[0].center.z -= 0.01;
         scene.spheres[1].center.z -= 0.015;
     }
